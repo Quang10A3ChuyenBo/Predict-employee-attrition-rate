@@ -63,7 +63,7 @@ class DecisionTree:
         self.tree[depth] = (best_feature, best_threshold)
 
         left_indices = np.where(X[:, best_feature] <= best_threshold)[0]
-        right_indices = np.where(X[:, best_feature] > threshold)[0]
+        right_indices = np.where(X[:, best_feature] > best_threshold)[0]
 
         left_X = X[left_indices]
         left_y = y[left_indices]
@@ -77,12 +77,17 @@ class DecisionTree:
         predictions = []
         for sample in X:
             depth = 0
-            while isinstance(self.tree.get(depth), tuple):
+            while depth in self.tree and isinstance(self.tree[depth], tuple):
                 feature, threshold = self.tree[depth]
                 if sample[feature] <= threshold:
                     depth = 2 * depth + 1
                 else:
                     depth = 2 * depth + 2
-            predictions.append(self.tree[depth])
+
+            if depth not in self.tree:
+                predictions.append(Counter(y_train).most_common(1)[0][0])
+
+            else:
+                predictions.append(self.tree[depth])
 
         return np.array(predictions)
