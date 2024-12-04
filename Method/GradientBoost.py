@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+from sklearn.metrics import mean_squared_error
 
 
 class Node:
@@ -17,6 +18,8 @@ class Node:
         self.col_count = x.shape[1]
         self.subsample_cols = subsample_cols
         self.eps = eps
+        self.best_iteration = None
+        self.early_stopping_rounds = None
         self.column_subsample = np.random.permutation(self.col_count)[:round(self.subsample_cols * self.col_count)]
 
         self.val = self.compute_gamma(self.gradient[self.idxs], self.hessian[self.idxs])
@@ -126,8 +129,10 @@ class Node:
 
 class XGBoostTree:
 
-    def fit(self, x, gradient, hessian,  *args, **kwargs):
-        self.dtree = Node(x, gradient, hessian, np.array(np.arange(len(x))), *args, **kwargs)
+    def fit(self, x, gradient, hessian, subsample_cols=0.8, min_leaf=5, min_child_weight=1, depth=10, lambda_=1,
+            gamma=1, eps=0.1):
+        self.dtree = Node(x, gradient, hessian, np.array(np.arange(len(x))), subsample_cols, min_leaf, min_child_weight,
+                          depth, lambda_, gamma, eps)
         return self
 
     def predict(self, X):
@@ -146,8 +151,8 @@ class XGBoostRegressor:
     def hess(preds, labels):
         return (np.full((preds.shape[0], 1), 2).flatten().astype('float64'))
 
-    def fit(self, X, y, subsample_cols=0.8, min_child_weight=1, depth=5, min_leaf=5, learning_rate=0.4,
-            boosting_rounds=5, lambda_=1.5, gamma=1, eps=0.1):
+    def fit(self, X, y, subsample_cols=0.8, min_child_weight=1, depth=5, min_leaf=5, learning_rate=0.2,
+            boosting_rounds=5, lambda_=1.5, gamma=1, eps=0.1, early_stopping_rounds=None, X_val=None, y_val=None):
         self.X, self.y = X, y
         self.depth = depth
         self.subsample_cols = subsample_cols
@@ -158,8 +163,11 @@ class XGBoostRegressor:
         self.boosting_rounds = boosting_rounds
         self.lambda_ = lambda_
         self.gamma = gamma
-
+        self.early_stopping_rounds = early_stopping_rounds
+        self.best_iteration = 0
         self.base_pred = np.full((X.shape[0], 1), np.mean(y)).flatten().astype('float64')
+        best_rmse = float('inf')
+        best_iteration = 0
 
         for booster in range(self.boosting_rounds):
             Grad = self.grad(self.base_pred, self.y)
@@ -171,10 +179,22 @@ class XGBoostRegressor:
             self.base_pred += self.learning_rate * boosting_tree.predict(self.X)
             self.estimators.append(boosting_tree)
 
+            if self.early_stopping_rounds and X_val is not None and y_val is not None:
+                y_val_pred = self.predict(X_val)
+                val_rmse = mean_squared_error(y_val, y_val_pred, squared=False)
+
+                if val_rmse < best_rmse:
+                    best_rmse = val_rmse
+                    self.best_iteration = booster
+                elif booster - self.best_iteration >= self.early_stopping_rounds:
+                    break
+
     def predict(self, X):
         pred = np.zeros(X.shape[0])
 
-        for estimator in self.estimators:
+        for i, estimator in enumerate(self.estimators):
+            if self.early_stopping_rounds and i > self.best_iteration:
+                break
             pred += self.learning_rate * estimator.predict(X)
 
         return np.full((X.shape[0], 1), np.mean(self.y)).flatten().astype('float64') + pred
