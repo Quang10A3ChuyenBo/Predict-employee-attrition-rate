@@ -138,6 +138,28 @@ class XGBoostTree:
     def predict(self, X):
         return self.dtree.predict(X)
 
+    def get_feature_importance(self, importance_type='weight'):
+
+        if importance_type not in ['weight', 'gain']:
+            raise ValueError("Invalid importance_type. Must be 'weight' or 'gain'")
+
+        feature_importances = {}
+        for estimator in self.estimators:
+
+            tree_importance = estimator.dtree.tree
+            for depth, value in tree_importance.items():
+                if isinstance(value, tuple):
+                    feature, _ = value
+
+                    if feature not in feature_importances:
+                        feature_importances[feature] = 0
+
+                    if importance_type == 'weight':
+                        feature_importances[feature] += 1
+                    elif importance_type == 'gain':
+                        feature_importances[feature] += estimator.dtree.tree[depth][1]
+        return feature_importances
+
 class XGBoostRegressor:
 
     def __init__(self):
@@ -167,7 +189,6 @@ class XGBoostRegressor:
         self.best_iteration = 0
         self.base_pred = np.full((X.shape[0], 1), np.mean(y)).flatten().astype('float64')
         best_rmse = float('inf')
-        best_iteration = 0
 
         for booster in range(self.boosting_rounds):
             Grad = self.grad(self.base_pred, self.y)
@@ -198,3 +219,5 @@ class XGBoostRegressor:
             pred += self.learning_rate * estimator.predict(X)
 
         return np.full((X.shape[0], 1), np.mean(self.y)).flatten().astype('float64') + pred
+
+
